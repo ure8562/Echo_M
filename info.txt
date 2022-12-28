@@ -1,0 +1,2 @@
+https://blog.naver.com/PostView.naver?blogId=ssjk0802&logNo=222348018807&parentCategoryNo=&categoryNo=47&viewDate=&isShowPopularPosts=true&from=search
+git clone -> app 안보이는 현상
