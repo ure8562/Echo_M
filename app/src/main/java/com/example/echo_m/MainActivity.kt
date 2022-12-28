@@ -18,7 +18,7 @@ class MainActivity : AppCompatActivity() {
     var serialPort: SerialPort? = null
     var inputStream: InputStream? = null
     var outputStream: OutputStream? = null
-
+    //test1
     lateinit var serialThread: Thread
 
     override fun onCreate(savedInstanceState: Bundle?) {
