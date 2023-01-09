@@ -1,26 +1,33 @@
 package com.example.echo_m
 
+import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.usb.UsbManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.Message
 import androidx.appcompat.app.AppCompatActivity
 import com.example.echo_m.databinding.ActivityMainBinding
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import java.io.IOException
 import java.lang.Thread.interrupted
-import java.math.BigInteger
 
 
 class MainActivity : AppCompatActivity() {
 
     //test1
     var port:UsbSerialPort ?= null
+    var serial_isopen:Boolean = false
+    var once:Boolean = true;
+    //var binding:ActivityMainBinding ?= null
     lateinit var serialThread: Thread
 
+    @SuppressLint("SetTextI18n")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         //setContentView(R.layout.activity_main)
@@ -33,66 +40,91 @@ class MainActivity : AppCompatActivity() {
         //setContentView(R.layout.activity_main);
         registerReceiver(mUsbDeviceReceiver, IntentFilter(UsbManager.ACTION_USB_DEVICE_ATTACHED))
 
+
         binding.button2.setOnClickListener{
 
-            var temp:String = "AE01"
-            var temp2:ByteArray = temp.decodeHex()
+            val temp:String = binding.serialTxTxt.text.toString()
+            val temp2:ByteArray = temp.decodeHex()
+
+            binding.serialRxTxt.append("\nsend : $temp")
+            binding.scrollView2.post {
+                binding.scrollView2.smoothScrollTo(0, binding.serialRxTxt.bottom)
+            }
             port?.write(temp2,100)
         }
 
         binding.button.setOnClickListener{
 
-            val manager = getSystemService(USB_SERVICE) as UsbManager
-            val availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(manager)
-            if (availableDrivers.isEmpty()) {
-                return@setOnClickListener;
-            }
-            val driver = availableDrivers[0]
-            val connection = manager.openDevice(driver.device)
-            val hasPermision = manager.hasPermission(driver.device)
-            if (connection == null) {
-                //UsbManager.requestPermission(driver.getDevice(), mPendingIntent)
-                // add UsbManager.requestPermission(driver.getDevice(), ..) handling here
-                return@setOnClickListener
-            }
-            port = driver.ports[0] // Most devices have just one port (port 0)
+            if(!serial_isopen) {
+                val manager = getSystemService(USB_SERVICE) as UsbManager
+                val availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(manager)
+                if (availableDrivers.isEmpty()) {
+                    return@setOnClickListener
+                }
+                val driver = availableDrivers[0]
+                val connection = manager.openDevice(driver.device) ?: return@setOnClickListener
+                //val hasPermision = manager.hasPermission(driver.device)
 
-            try {
-                port?.open(connection)
-            } catch (e: IOException) {
-                e.printStackTrace()
+
+                port = driver.ports[0] // Most devices have just one port (port 0)
+
+                try {
+                    port?.open(connection)
+                    serial_isopen = true
+                    binding.button2.isEnabled = true
+                    binding.button.text = "DISCONNECT"
+                    if(once) {
+                        serialThread.start()
+                        once = false
+                    }
+                } catch (e: IOException) {
+                    e.printStackTrace()
+                }
+                try {
+                    port?.setParameters(
+                        921600,
+                        8,
+                        UsbSerialPort.STOPBITS_1,
+                        UsbSerialPort.PARITY_NONE
+                    )
+                } catch (e: IOException) {
+                    e.printStackTrace()
+                }
             }
-            try {
-                port?.setParameters(921600, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
-            } catch (e: IOException) {
-                e.printStackTrace()
+            else
+            {
+                binding.button.text = "WAIT.."
+                Handler(Looper.getMainLooper()).postDelayed({
+                    port?.close()
+                    serial_isopen = false
+                    binding.button2.isEnabled = false
+                    binding.button.text = "CONNECT"
+                    //실행할 코드
+                }, 500)
             }
-            serialThread.start()
         }
 
         serialThread = Thread() {
-            var mKillSign = false
-
-            // stop this thread
-            fun setKillSign(isTrue: Boolean) {
-                mKillSign = true
-            }
-            while(mKillSign == false)
+            while(true)
             {
                 val readBuffer = ByteArray(4096)
-                while (!interrupted()) {
+                while (serial_isopen) {
                     try {
                         // Read and Display to Terminal
                         val numBytesRead: Int = port?.read(readBuffer, 2000) ?: -1
 
 
                         if (numBytesRead > 0) {
-                            val Hex_Value: String =
-                                getByte_To_HexString(readBuffer, numBytesRead)
-                            val Hex_Value1: String =
-                                getByte_To_HexString(readBuffer, numBytesRead)
+                            val Hex_Value: String = getByte_To_HexString(readBuffer, numBytesRead)
+                            runOnUiThread{
+                                binding.serialRxTxt.append("\nrecv : $Hex_Value")
+                            }
+                            //binding.serialRxTxt.append("\nrecv : $Hex_Value")
+                            //binding.scrollView2.post {
+                            //    binding.scrollView2.smoothScrollTo(0, binding.serialRxTxt.bottom)
+                            //}
                         }
-                    } catch (e: IOException) {
+                    } catch (_: IOException) {
                     }
                     try {
                         Thread.sleep(100)
@@ -100,24 +132,27 @@ class MainActivity : AppCompatActivity() {
                         e.printStackTrace()
                         break
                     }
-                    if (mKillSign) break
                 }
+                Thread.sleep(100)
             }
         }
 
 
-    }
 
+
+    }
 
 
     private val mUsbDeviceReceiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val action = intent.action
+
             if (UsbManager.ACTION_USB_DEVICE_ATTACHED == action) {
             } else if (UsbManager.ACTION_USB_DEVICE_DETACHED == action) {
             }
         }
     }
+
 
     fun getByte_To_HexString(buf: ByteArray, size: Int): String {
         var Hex_Value = ""
